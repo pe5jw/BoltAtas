@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "BoltATAS")(type "KiCad")(uri "${KIPRJMOD}/BoltATAS.pretty")(options "")(descr "BoltATAS project footprints"))
+)

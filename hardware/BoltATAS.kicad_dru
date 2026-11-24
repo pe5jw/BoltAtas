@@ -1,0 +1,14 @@
+(version 1)
+# RF line: up to ~190 V peak at 120 W with SWR 3
+(rule "RF to RF (only a capacitor between them)"
+  (condition "A.NetClass == 'RF' && B.NetClass == 'RF'")
+  (constraint clearance (min 0.3mm)))
+(rule "RF clearance"
+  (condition "A.NetClass == 'RF' && B.NetClass != 'RF'")
+  (constraint clearance (min 1.0mm)))
+# T2 primary pad and hot coax ends
+(rule "thermal spokes"
+  (constraint min_resolved_spokes 1))
+(rule "RF hole clearance"
+  (condition "A.NetClass == 'RF' && B.NetClass != 'RF'")
+  (constraint hole_clearance (min 0.8mm)))

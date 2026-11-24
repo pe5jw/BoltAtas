@@ -1,0 +1,16 @@
+# KiCad local / generated
+*.kicad_prl
+*-backups/
+fp-info-cache
+*.lck
+hardware/BoltATAS.net
+hardware/BoltATAS.dsn
+hardware/BoltATAS.ses
+hardware/freerouting.log
+hardware/BoltATAS-drc.rpt
+__pycache__/
+# firmware
+firmware/BoltATAS/secrets.h
+firmware/test/sim_test
+firmware/test/net_test
+build/

@@ -1,0 +1,56 @@
+** Drc report for /home/claude/boltatas-hw/kicad/BoltATAS.kicad_pcb **
+** Created on 2026-11-24 22:25:17 **
+
+** Found 12 DRC violations **
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; Severity: warning
+    @(166.6700 mm, 113.2700 mm): Line on F.Silkscreen
+    @(166.5000 mm, 126.0000 mm): Reference 'C52'
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; Severity: warning
+    @(166.6700 mm, 113.2700 mm): Line on F.Silkscreen
+    @(166.5000 mm, 117.0000 mm): Reference 'C49'
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; Severity: warning
+    @(166.6700 mm, 126.0300 mm): Line on F.Silkscreen
+    @(166.5000 mm, 126.0000 mm): Reference 'C52'
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; Severity: warning
+    @(132.3500 mm, 116.0000 mm): Reference 'R41'
+    @(132.4000 mm, 114.2000 mm): Line on F.Silkscreen
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; Severity: warning
+    @(138.0000 mm, 123.3500 mm): Reference 'R45'
+    @(137.7729 mm, 122.7350 mm): Line on F.Silkscreen
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; Severity: warning
+    @(137.7729 mm, 102.7350 mm): Line on F.Silkscreen
+    @(138.0000 mm, 103.3500 mm): Reference 'R43'
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; Severity: warning
+    @(156.0000 mm, 51.6000 mm): PCB Text '13.8V' on F.Silkscreen
+    @(155.4000 mm, 50.7390 mm): Line on F.Silkscreen
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; Severity: warning
+    @(168.0000 mm, 109.6700 mm): Reference 'J4'
+    @(166.5000 mm, 109.0000 mm): Reference 'C48'
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; Severity: warning
+    @(165.5000 mm, 101.0000 mm): Reference 'C46'
+    @(166.8200 mm, 102.0000 mm): Reference 'C51'
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; Severity: warning
+    @(166.5000 mm, 117.0000 mm): Reference 'C49'
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; Severity: warning
+    @(193.6000 mm, 96.5500 mm): Footprint Text 'CLK_EN' of U6
+[silk_edge_clearance]: Silkscreen clipped by board edge
+    Rule: board setup constraints silk; Severity: warning
+    @(50.0000 mm, 50.0000 mm): Line on Edge.Cuts
+    @(198.1000 mm, 105.1000 mm): Rect on F.Silkscreen
+
+** Found 0 unconnected pads **
+
+** Found 0 Footprint errors **
+
+** End of Report **
