@@ -1,8 +1,20 @@
 /*
- * BoltATAS v1.1 — WT32-ETH01 controller for the Yaesu ATAS-100
- * PE5JW, 2026-11-24
+ * BoltATAS v1.2 — WT32-ETH01 controller for the Yaesu ATAS-100
+ * PE5JW, 2026-11-25
  *
- * Changes from v1.0 (review):
+ * New in v1.2 (hardware v1.3): front panel
+ *  - SWR LEDs: green < 1.5, orange 1.5 .. 2.5, red >= 2.5 (thresholds
+ *    in /cal), off without a carrier. They also give feedback: tune ok =
+ *    3x green, best effort = 3x orange, tune failed or no carrier = 3x red,
+ *    power too high = 3x orange+red. All three light briefly at boot.
+ *  - UP / DOWN buttons: the motor runs while the button is held (max
+ *    MOTOR_MAX_RUN_MS), with or without a carrier. TUNE button: autotune
+ *    when there is a carrier, a second press aborts.
+ *  - The motor never moves above MANUAL_MAX_FWD_W (25 W): buttons and
+ *    /up /down are refused, and a running manual move stops when the
+ *    power goes above it (moving the whip under high power can arc).
+ *
+ * Changes in v1.1 from v1.0 (review):
  *  - WT32-ETH01 Ethernet init with the right PHY settings (addr 1,
  *    power/osc-enable GPIO16, MDC 23, MDIO 18, clock in on GPIO0).
  *    v1.0 called ETH.begin() with ESP32 defaults: Ethernet never came up.
@@ -23,18 +35,24 @@
  *  - Ethernet/WiFi never both: WiFi only starts when there is no
  *    Ethernet link and is switched off the moment a cable is plugged in.
  *
- * Pins (hardware v1.1 and v1.2, same pinout, see schematic):
+ * Pins (hardware v1.3, see schematic; v1.1/v1.2 have no front panel):
  *   IO36  ADC  FWD detector (AD8307 U4)
  *   IO39  ADC  REF detector (AD8307 U5)
  *   IO35  ADC  motor current (INA180A1, 2 mV per mA)
  *   IO4   OUT  K1: +12 V on coax = whip longer  = resonance DOWN
  *   IO32  OUT  K2: +8 V on coax  = whip shorter = resonance UP
  *   IO33  OUT  status LED
- *   (IO5 is no longer used: it is a strapping pin that toggles at boot.)
+ *   IO2   OUT  SWR LED green   (strap pin: the LED to GND keeps it low at boot)
+ *   IO12  OUT  SWR LED orange  (strap pin: idem)
+ *   IO14  OUT  SWR LED red
+ *   IO15  IN   UP button   (to GND, 10k pull-up; strap pin, pull-up is its default)
+ *   IO5   IN   DOWN button (to GND, 10k pull-up; strap pin, idem)
+ *   IO17  IN   TUNE button (to GND, 10k pull-up)
  *
  * HTTP API (all GET, JSON replies, CORS open):
  *   /status                 measurements, motor, tune state, network
- *   /up       /down         run until /stop (limited to MOTOR_MAX_RUN_MS)
+ *   /up       /down         run until /stop (limited to MOTOR_MAX_RUN_MS),
+ *                           refused above MANUAL_MAX_FWD_W
  *   /up?ms=N  /down?ms=N    run N ms (10..MOTOR_MAX_RUN_MS)
  *   /stop                   stop motor, abort tuning
  *   /tune                   start autotune (needs a carrier, <= 25 W)
@@ -44,6 +62,7 @@
  *   /cal?fwd_w=10           set FWD coupling from a known forward power
  *   /cal?ref_w=10           set REF coupling (feed RF into the ANT port)
  *   /cal?fwd_cpl=42.5&ref_cpl=42.5&travel_ms=45000   set directly
+ *   /cal?swr_green=1.5&swr_red=2.5   SWR LED thresholds
  *   /cal?reset=1            back to defaults
  *   Manual /up and /down abort a running autotune.
  *
@@ -82,11 +101,12 @@
 #endif
 
 static const char* HOSTNAME   = "boltatas";
-static const char* FW_VERSION = "1.1.0";
+static const char* FW_VERSION = "1.2.0";
 
 static const uint32_t MOTOR_MAX_RUN_MS = 15000;   // manual moves
 static const float    TUNE_TARGET_SWR  = 1.5f;
 static const float    TUNE_MAX_FWD_W   = 25.0f;
+static const float    MANUAL_MAX_FWD_W = 25.0f;   // buttons and /up /down
 static const uint32_t ETH_WAIT_MS      = 4000;    // at boot, before WiFi
 static const uint32_t ETH_GRACE_MS     = 5000;    // cable pulled: wait before WiFi
 static const uint32_t ETH_DHCP_MS      = 20000;   // cable in but no IP: give up, use WiFi
@@ -106,6 +126,12 @@ static const uint16_t MOTOR_OPEN_MA    = 10;      // no ATAS connected (0 = off)
 #define PIN_K1_12V   4
 #define PIN_K2_8V    32
 #define PIN_LED      33
+#define PIN_SWR_G    2
+#define PIN_SWR_O    12
+#define PIN_SWR_R    14
+#define PIN_BTN_UP   15
+#define PIN_BTN_DOWN 5
+#define PIN_BTN_TUNE 17
 
 // WT32-ETH01 Ethernet (LAN8720A)
 #define WT32_PHY_ADDR   1
@@ -130,6 +156,8 @@ static atas::Tuner    tuner(motor);
 static atas::RfReading lastRf = {};
 static float          targetSwr = TUNE_TARGET_SWR;
 static uint16_t       motorMa = 0;
+static atas::FrontPanel panel;
+static atas::SwrLeds    swrLeds;
 
 enum class MotorFault : uint8_t { None, Open, Short };
 static MotorFault motorFault = MotorFault::None;
@@ -176,6 +204,8 @@ static void loadCal() {
   rfCfg.fwd_coupling_db = prefs.getFloat("fwd_cpl", 42.5f);
   rfCfg.ref_coupling_db = prefs.getFloat("ref_cpl", 42.5f);
   tuner.cfg.full_travel_ms = prefs.getUInt("travel_ms", 45000);
+  swrLeds.cfg.green_below = prefs.getFloat("swr_g", 1.5f);
+  swrLeds.cfg.red_from = prefs.getFloat("swr_r", 2.5f);
   prefs.end();
 }
 
@@ -184,6 +214,8 @@ static void saveCal() {
   prefs.putFloat("fwd_cpl", rfCfg.fwd_coupling_db);
   prefs.putFloat("ref_cpl", rfCfg.ref_coupling_db);
   prefs.putUInt("travel_ms", tuner.cfg.full_travel_ms);
+  prefs.putFloat("swr_g", swrLeds.cfg.green_below);
+  prefs.putFloat("swr_r", swrLeds.cfg.red_from);
   prefs.end();
 }
 
@@ -330,6 +362,11 @@ static void handleStatus() {
   doc["ref_dbm"] = serialized(num(lastRf.ref_dbm, 1));
   doc["motor_ma"] = motorMa;
   doc["motor_fault"] = faultName(motorFault);
+  doc["swr_led"] = atas::SwrLeds::name(swrLeds.level());
+  JsonObject b = doc["buttons"].to<JsonObject>();
+  b["up"] = panel.upPressed();
+  b["down"] = panel.downPressed();
+  b["tune"] = panel.tunePressed();
 
   JsonObject t = doc["tune"].to<JsonObject>();
   t["state"]    = atas::tuneStateName(tuner.state());
@@ -348,12 +385,31 @@ static uint32_t argMs() {
   return (uint32_t)ms;
 }
 
-static void manualMove(atas::Dir d, const char* action) {
-  const uint32_t now = millis();
+// Shared by HTTP and the front panel. Returns nullptr or an error name.
+static const char* startManual(atas::Dir d, uint32_t ms, uint32_t now) {
   tuner.abort(now);                                   // manual overrides autotune
+  if (lastRf.valid && lastRf.fwd_w > MANUAL_MAX_FWD_W) { motor.stop(now); return "power_too_high"; }
   motorFault = MotorFault::None;
-  motor.run(d, argMs(), now);
-  sendSimple(200, action);
+  motor.run(d, ms, now);
+  return nullptr;
+}
+
+static const char* startTune(float target, atas::Dir first, uint32_t now) {
+  atas::RfReading r = measureRf(32);
+  if (!r.valid) return "no_rf";
+  if (r.fwd_w > TUNE_MAX_FWD_W) return "power_too_high";
+  targetSwr = target;
+  tuner.cfg.target_swr = target;
+  tuner.cfg.max_fwd_w = TUNE_MAX_FWD_W;
+  tuner.cfg.min_fwd_w = rfCfg.min_fwd_w;
+  motorFault = MotorFault::None;
+  tuner.start(now, first);
+  return nullptr;
+}
+
+static void manualMove(atas::Dir d, const char* action) {
+  const char* err = startManual(d, argMs(), millis());
+  sendSimple(err ? 409 : 200, action, err);
 }
 
 static void handleUp()   { manualMove(atas::Dir::Up, "up"); }
@@ -375,16 +431,8 @@ static void handleTune() {
   atas::Dir first = atas::Dir::Up;
   if (server.hasArg("dir") && server.arg("dir") == "down") first = atas::Dir::Down;
 
-  atas::RfReading r = measureRf(32);
-  if (!r.valid) { sendSimple(409, "tune", "no_rf"); return; }
-  if (r.fwd_w > TUNE_MAX_FWD_W) { sendSimple(409, "tune", "power_too_high"); return; }
-
-  targetSwr = target;
-  tuner.cfg.target_swr = target;
-  tuner.cfg.max_fwd_w = TUNE_MAX_FWD_W;
-  tuner.cfg.min_fwd_w = rfCfg.min_fwd_w;
-  motorFault = MotorFault::None;
-  tuner.start(millis(), first);
+  const char* err = startTune(target, first, millis());
+  if (err) { sendSimple(409, "tune", err); return; }
 
   JSON_DOC(doc);
   doc["ok"] = true;
@@ -399,6 +447,8 @@ static void handleCal() {
   if (server.hasArg("reset")) {
     rfCfg.fwd_coupling_db = rfCfg.ref_coupling_db = 42.5f;
     tuner.cfg.full_travel_ms = 45000;
+    swrLeds.cfg.green_below = 1.5f;
+    swrLeds.cfg.red_from = 2.5f;
     changed = true;
   }
   if (server.hasArg("fwd_w")) {      // known forward power on the line now
@@ -415,12 +465,23 @@ static void handleCal() {
     long t = server.arg("travel_ms").toInt();
     if (t >= 5000 && t <= 120000) { tuner.cfg.full_travel_ms = (uint32_t)t; changed = true; }
   }
+  if (server.hasArg("swr_green") || server.hasArg("swr_red")) {
+    float g = server.hasArg("swr_green") ? server.arg("swr_green").toFloat() : swrLeds.cfg.green_below;
+    float r = server.hasArg("swr_red") ? server.arg("swr_red").toFloat() : swrLeds.cfg.red_from;
+    if (g >= 1.05f && r > g + 0.1f && r <= 10.0f) {
+      swrLeds.cfg.green_below = g;
+      swrLeds.cfg.red_from = r;
+      changed = true;
+    }
+  }
   if (changed) saveCal();
 
   JSON_DOC(doc);
   doc["fwd_cpl"]   = serialized(num(rfCfg.fwd_coupling_db, 2));
   doc["ref_cpl"]   = serialized(num(rfCfg.ref_coupling_db, 2));
   doc["travel_ms"] = tuner.cfg.full_travel_ms;
+  doc["swr_green"] = serialized(num(swrLeds.cfg.green_below, 2));
+  doc["swr_red"]   = serialized(num(swrLeds.cfg.red_from, 2));
   doc["saved"]     = changed;
   sendJson(200, doc);
 }
@@ -476,6 +537,68 @@ static void ledUpdate(uint32_t now) {
 }
 
 // ─────────────────────────────────────────────
+//  FRONT PANEL — UP / DOWN / TUNE buttons, SWR LEDs
+// ─────────────────────────────────────────────
+static void panelUpdate(uint32_t now) {
+  static uint32_t lastPoll = 0;
+  if ((uint32_t)(now - lastPoll) < 5) return;
+  lastPoll = now;
+
+  // A move started from the panel that ended by itself (run-time limit,
+  // motor fault) is forgotten, so the release does not stop anything else.
+  if (panel.moving() != atas::Dir::None && !motor.busy()) panel.moveEnded();
+
+  const atas::PanelAction a = panel.update(digitalRead(PIN_BTN_UP) == LOW,
+                                           digitalRead(PIN_BTN_DOWN) == LOW,
+                                           digitalRead(PIN_BTN_TUNE) == LOW, now);
+  switch (a) {
+    case atas::PanelAction::MoveUp:
+    case atas::PanelAction::MoveDown: {
+      const atas::Dir d = a == atas::PanelAction::MoveUp ? atas::Dir::Up : atas::Dir::Down;
+      if (startManual(d, 0, now)) {                   // 0 = while held, max MOTOR_MAX_RUN_MS
+        panel.moveEnded();
+        swrLeds.flash(atas::LED_ORANGE | atas::LED_RED, 3, now);
+      }
+      break;
+    }
+    case atas::PanelAction::Stop:
+      tuner.abort(now);
+      motor.stop(now);
+      break;
+    case atas::PanelAction::Tune:
+      if (tuner.active()) {
+        tuner.abort(now);
+      } else {
+        const char* err = startTune(TUNE_TARGET_SWR, atas::Dir::Up, now);
+        if (err) swrLeds.flash(strcmp(err, "no_rf") == 0 ? atas::LED_RED : atas::LED_ORANGE | atas::LED_RED, 3, now);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+static void swrLedUpdate(uint32_t now) {
+  // Autotune finished: show the result.
+  static bool wasTuning = false;
+  const bool tuning = tuner.active();
+  if (wasTuning && !tuning) {
+    switch (tuner.result()) {
+      case atas::TuneResult::Ok:         swrLeds.flash(atas::LED_GREEN, 3, now); break;
+      case atas::TuneResult::BestEffort: swrLeds.flash(atas::LED_ORANGE, 3, now); break;
+      case atas::TuneResult::Aborted:    break;
+      default:                           swrLeds.flash(atas::LED_RED, 3, now); break;
+    }
+  }
+  wasTuning = tuning;
+
+  const uint8_t m = swrLeds.update(lastRf, now);
+  digitalWrite(PIN_SWR_G, (m & atas::LED_GREEN) ? HIGH : LOW);
+  digitalWrite(PIN_SWR_O, (m & atas::LED_ORANGE) ? HIGH : LOW);
+  digitalWrite(PIN_SWR_R, (m & atas::LED_RED) ? HIGH : LOW);
+}
+
+// ─────────────────────────────────────────────
 //  SETUP / LOOP
 // ─────────────────────────────────────────────
 void setup() {
@@ -486,6 +609,8 @@ void setup() {
   pinMode(PIN_K1_12V, OUTPUT);
   pinMode(PIN_K2_8V, OUTPUT);
   pinMode(PIN_LED, OUTPUT);
+  for (int p : {PIN_SWR_G, PIN_SWR_O, PIN_SWR_R}) { digitalWrite(p, LOW); pinMode(p, OUTPUT); }
+  for (int p : {PIN_BTN_UP, PIN_BTN_DOWN, PIN_BTN_TUNE}) pinMode(p, INPUT_PULLUP);   // 10k on the board too
 
   Serial.begin(115200);
   Serial.printf("\n[BoltATAS] v%s boot\n", FW_VERSION);
@@ -497,6 +622,7 @@ void setup() {
 
   loadCal();
   motor.begin(millis());
+  swrLeds.flash(atas::LED_GREEN | atas::LED_ORANGE | atas::LED_RED, 1, millis());   // lamp test
 
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
   Network.onEvent(onNetEvent);
@@ -524,6 +650,7 @@ void loop() {
   server.handleClient();
   if (servicesStarted) ArduinoOTA.handle();
 
+  panelUpdate(now);
   motor.update(now);
   superviseMotor(now);
 
@@ -541,8 +668,14 @@ void loop() {
   } else if ((uint32_t)(now - lastRfAt) >= 50) {
     lastRf = measureRf(32);
     lastRfAt = now;
+    // Manual move and the power went up: stop before the whip arcs.
+    if (motor.energized() != atas::Dir::None && lastRf.valid && lastRf.fwd_w > MANUAL_MAX_FWD_W) {
+      motor.stop(now);
+      swrLeds.flash(atas::LED_ORANGE | atas::LED_RED, 3, now);
+    }
   }
 
+  swrLedUpdate(now);
   ledUpdate(now);
   delay(1);
 }

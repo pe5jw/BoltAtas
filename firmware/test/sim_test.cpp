@@ -5,6 +5,7 @@
 // 2. Motor: interlock, dead time, timed runs, run-time limit
 // 3. Autotune against a simulated ATAS-100 (random resonance, start
 //    position, feed-point resistance, coax loss, motor coast, detector noise)
+// 4. Front panel: debounce, button actions, SWR LED colours and flashes
 #include <cassert>
 #include <cmath>
 #include <complex>
@@ -232,9 +233,112 @@ static void testTunerSafety() {
   checkRelayLog("safety");
 }
 
+// ── 4. front panel ──────────────────────────────────────────
+static void testDebounce() {
+  Debounce d;
+  d.update(false, 0);
+  int rises = 0;
+  // 10 ms of contact bounce, then held
+  for (uint32_t t = 1; t < 200; t++) {
+    bool raw = t < 10 ? (t % 2) : (t < 150);
+    d.update(raw, t);
+    if (d.rose()) { rises++; CHECK(t >= 9 + Debounce::MS, "press accepted too early (t=%u)", t); }   // last bounce at t=9
+    if (d.fell()) CHECK(t >= 150 + Debounce::MS, "release accepted too early (t=%u)", t);
+  }
+  CHECK(rises == 1, "bouncing press counted %d times", rises);
+  CHECK(!d.pressed(), "released at the end");
+
+  Debounce stuck;                                   // pressed at power-up: no press event
+  bool any = false;
+  for (uint32_t t = 0; t < 500; t++) { stuck.update(true, t); any |= stuck.rose(); }
+  CHECK(!any && stuck.pressed(), "a button held at power-up must not give a press");
+}
+
+static PanelAction panelRun(FrontPanel& p, bool u, bool d, bool tn, uint32_t& t, uint32_t ms) {
+  PanelAction last = PanelAction::None;
+  for (uint32_t e = t + ms; t < e; t += 5) {
+    PanelAction a = p.update(u, d, tn, t);
+    if (a != PanelAction::None) last = a;
+  }
+  return last;
+}
+
+static void testFrontPanel() {
+  uint32_t t = 0;
+  FrontPanel p;
+  CHECK(panelRun(p, false, false, false, t, 100) == PanelAction::None, "idle");
+  CHECK(panelRun(p, true, false, false, t, 100) == PanelAction::MoveUp, "UP press -> MoveUp");
+  CHECK(panelRun(p, true, false, false, t, 1000) == PanelAction::None, "UP held -> nothing new");
+  CHECK(panelRun(p, false, false, false, t, 100) == PanelAction::Stop, "UP release -> Stop");
+  CHECK(panelRun(p, false, true, false, t, 100) == PanelAction::MoveDown, "DOWN press -> MoveDown");
+  CHECK(panelRun(p, false, false, false, t, 100) == PanelAction::Stop, "DOWN release -> Stop");
+  CHECK(panelRun(p, false, false, true, t, 100) == PanelAction::Tune, "TUNE press -> Tune");
+  CHECK(panelRun(p, false, false, false, t, 100) == PanelAction::None, "TUNE release -> nothing");
+  // both: stop, then nothing until both are released
+  panelRun(p, true, false, false, t, 100);
+  CHECK(panelRun(p, true, true, false, t, 100) == PanelAction::Stop, "UP+DOWN -> Stop");
+  CHECK(panelRun(p, false, true, false, t, 300) == PanelAction::None, "still blocked with DOWN held");
+  CHECK(panelRun(p, false, false, false, t, 100) == PanelAction::None, "both released");
+  CHECK(panelRun(p, false, true, false, t, 100) == PanelAction::MoveDown, "usable again");
+  // move ended by itself (run-time limit): release sends no stop
+  p.moveEnded();
+  CHECK(panelRun(p, false, false, false, t, 100) == PanelAction::None, "no stop after moveEnded");
+  // TUNE ignored while a button move is running
+  panelRun(p, true, false, false, t, 100);
+  CHECK(panelRun(p, true, false, true, t, 100) == PanelAction::None, "TUNE ignored while moving");
+  panelRun(p, false, false, false, t, 100);
+
+  FrontPanel boot;                                  // UP stuck at power-up
+  uint32_t t2 = 0;
+  CHECK(panelRun(boot, true, false, false, t2, 2000) == PanelAction::None, "stuck UP must not move the motor");
+  panelRun(boot, false, false, false, t2, 100);
+  CHECK(panelRun(boot, true, false, false, t2, 100) == PanelAction::MoveUp, "works after release");
+}
+
+static RfReading rfSwr(float w, float swr) {
+  RfReading r{};
+  r.fwd_w = w;
+  r.swr = swr;
+  r.valid = w >= 0.5f;
+  return r;
+}
+
+static void testSwrLeds() {
+  SwrLeds l;
+  uint32_t t = 0;
+  CHECK(l.update(rfSwr(0, 1.0f), t) == 0, "no carrier -> off");
+  CHECK(l.update(rfSwr(10, 1.2f), t += 50) == LED_GREEN, "1.2 green");
+  CHECK(l.update(rfSwr(10, 1.52f), t += 50) == LED_GREEN, "1.52 still green (hysteresis)");
+  CHECK(l.update(rfSwr(10, 1.6f), t += 50) == LED_ORANGE, "1.6 orange");
+  CHECK(l.update(rfSwr(10, 1.48f), t += 50) == LED_ORANGE, "1.48 still orange (hysteresis)");
+  CHECK(l.update(rfSwr(10, 1.4f), t += 50) == LED_GREEN, "1.4 green");
+  CHECK(l.update(rfSwr(10, 3.0f), t += 50) == LED_RED, "3.0 red (straight from green)");
+  CHECK(l.update(rfSwr(10, 2.47f), t += 50) == LED_RED, "2.47 still red");
+  CHECK(l.update(rfSwr(10, 2.0f), t += 50) == LED_ORANGE, "2.0 orange");
+  // SSB pause: hold, then off
+  CHECK(l.update(rfSwr(0, 1.0f), t += 200) == LED_ORANGE, "held during a short pause");
+  CHECK(l.update(rfSwr(0, 1.0f), t += 300) == 0, "off after the hold time");
+  // flash overrides, then back to the display
+  l.update(rfSwr(10, 1.2f), t += 50);
+  l.flash(LED_RED, 3, t);
+  int on = 0, prev = -1;
+  for (uint32_t e = t + 3 * SwrLeds::FLASH_PERIOD_MS; t < e; t += 10) {
+    uint8_t m = l.update(rfSwr(10, 1.2f), t);
+    CHECK(m == 0 || m == LED_RED, "flash shows only red (%u)", m);
+    if (m == LED_RED && prev != LED_RED) on++;
+    prev = m;
+  }
+  CHECK(on == 3, "3 flashes, got %d", on);
+  CHECK(l.update(rfSwr(10, 1.2f), t + 10) == LED_GREEN, "back to green after the flash");
+  CHECK(!l.flashing(), "flash finished");
+}
+
 int main() {
   testRf();
   testMotor();
+  testDebounce();
+  testFrontPanel();
+  testSwrLeds();
   testTunerSafety();
   testTuner("nominal noise, 40 s travel");
   g_noise = 3.0; g_travel = 30000;

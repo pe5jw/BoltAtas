@@ -14,7 +14,9 @@
 #endif
 #define HIGH 1
 #define LOW 0
+#define INPUT 1
 #define OUTPUT 3
+#define INPUT_PULLUP 5
 typedef float float_t_;
 class String {
  public:
@@ -48,6 +50,7 @@ extern HardwareSerial Serial;
 typedef enum { ADC_0db, ADC_2_5db, ADC_6db, ADC_11db } adc_attenuation_t;
 void pinMode(uint8_t, uint8_t);
 void digitalWrite(uint8_t, uint8_t);
+int digitalRead(uint8_t);
 int32_t analogReadMilliVolts(uint8_t pin);
 void analogReadResolution(uint8_t bits);
 void analogSetPinAttenuation(uint8_t pin, adc_attenuation_t a);

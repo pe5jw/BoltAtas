@@ -1,5 +1,5 @@
 #!/bin/bash
-# Host tests: autotune/motor simulation and Ethernet/WiFi switching.
+# Host tests: autotune/motor/front-panel simulation, Ethernet/WiFi switching and front panel in the sketch.
 # ArduinoJson (header-only) is needed for net_test: git clone https://github.com/bblanchon/ArduinoJson
 set -e
 cd "$(dirname "$0")"

@@ -8,6 +8,9 @@
 //   Motor                   relay sequencing: break-before-make, run time
 //                           limit, position estimate
 //   Tuner                   non-blocking autotune state machine
+//   Debounce / FrontPanel   UP / DOWN / TUNE buttons -> actions
+//   SwrLeds                 green / orange / red SWR indicator with
+//                           hysteresis, hold time and feedback flashes
 //
 // Direction convention (ATAS-100):
 //   Dir::Up   = K2 = 8 V on coax  = whip shorter = resonance UP in frequency
@@ -440,6 +443,159 @@ class Tuner {
   float rlBuf_[3] = {0, 0, 0};
   int32_t posBuf_[3] = {0, 0, 0};
   uint8_t nBuf_ = 0;
+};
+
+// ─────────────────────────────────────────────────────────────
+//  Front panel: buttons
+// ─────────────────────────────────────────────────────────────
+class Debounce {
+ public:
+  static const uint32_t MS = 30;
+
+  // raw: true = pressed. Returns the debounced state; rose()/fell()
+  // are true for exactly one update after a change. The first sample is
+  // taken as the starting state without an edge, so a button that is
+  // already pressed (or stuck) at power-up never counts as a press.
+  bool update(bool raw, uint32_t now) {
+    rose_ = fell_ = false;
+    if (!init_) {
+      init_ = true;
+      last_ = stable_ = raw;
+      since_ = now;
+    } else if (raw != last_) {
+      last_ = raw;
+      since_ = now;
+    } else if (raw != stable_ && (uint32_t)(now - since_) >= MS) {
+      stable_ = raw;
+      if (raw) rose_ = true; else fell_ = true;
+    }
+    return stable_;
+  }
+  bool pressed() const { return stable_; }
+  bool rose() const { return rose_; }
+  bool fell() const { return fell_; }
+
+ private:
+  bool init_ = false, last_ = false, stable_ = false, rose_ = false, fell_ = false;
+  uint32_t since_ = 0;
+};
+
+enum class PanelAction : uint8_t { None, MoveUp, MoveDown, Stop, Tune };
+
+// UP / DOWN: the motor runs while the button is held (the caller limits
+// the run time), release stops it. Works with and without a carrier.
+// TUNE: press starts an autotune, a second press aborts it.
+// Both UP and DOWN together: stop, and nothing more until both are released.
+// A button that is already pressed at power-up is ignored until it has
+// been released once (a stuck or shorted button never moves the motor).
+class FrontPanel {
+ public:
+  PanelAction update(bool up, bool down, bool tune, uint32_t now) {
+    up_.update(up, now);
+    down_.update(down, now);
+    tune_.update(tune, now);
+
+    if (blocked_) {                                   // after UP+DOWN together
+      if (!up_.pressed() && !down_.pressed()) blocked_ = false;
+      return PanelAction::None;
+    }
+    if (up_.pressed() && down_.pressed()) {
+      blocked_ = true;
+      moving_ = Dir::None;
+      return PanelAction::Stop;
+    }
+    if (moving_ == Dir::Up && up_.fell()) { moving_ = Dir::None; return PanelAction::Stop; }
+    if (moving_ == Dir::Down && down_.fell()) { moving_ = Dir::None; return PanelAction::Stop; }
+    if (up_.rose()) { moving_ = Dir::Up; return PanelAction::MoveUp; }
+    if (down_.rose()) { moving_ = Dir::Down; return PanelAction::MoveDown; }
+    if (tune_.rose() && moving_ == Dir::None) return PanelAction::Tune;
+    return PanelAction::None;
+  }
+
+  // The move this panel started ended by itself (run-time limit, fault,
+  // refused): forget it, so a later release does not send a stop.
+  void moveEnded() { moving_ = Dir::None; }
+  Dir moving() const { return moving_; }
+  bool upPressed() const { return up_.pressed(); }
+  bool downPressed() const { return down_.pressed(); }
+  bool tunePressed() const { return tune_.pressed(); }
+
+ private:
+  Debounce up_, down_, tune_;
+  bool blocked_ = false;
+  Dir moving_ = Dir::None;
+};
+
+// ─────────────────────────────────────────────────────────────
+//  Front panel: SWR LEDs
+// ─────────────────────────────────────────────────────────────
+enum : uint8_t { LED_GREEN = 1, LED_ORANGE = 2, LED_RED = 4 };
+
+struct SwrLedConfig {
+  float green_below = 1.5f;     // SWR < 1.5        green
+  float red_from    = 2.5f;     // 1.5 <= SWR < 2.5 orange, >= 2.5 red
+  float hyst        = 0.05f;    // against flicker on a threshold
+  uint32_t hold_ms  = 400;      // keep showing after the carrier stops (SSB pauses)
+};
+
+class SwrLeds {
+ public:
+  static const uint32_t FLASH_PERIOD_MS = 300;    // 150 on, 150 off
+
+  SwrLedConfig cfg;
+
+  // Feedback: blink `mask` `count` times, then back to the SWR display.
+  void flash(uint8_t mask, uint8_t count, uint32_t now) {
+    fMask_ = mask;
+    fCount_ = count;
+    fStart_ = now;
+  }
+  bool flashing() const { return fCount_ != 0; }
+
+  // Returns the LED mask to show.
+  uint8_t update(const RfReading& r, uint32_t now) {
+    if (r.valid) {
+      level_ = levelFor(r.swr);
+      lastValid_ = now;
+      haveRf_ = true;
+    } else if (haveRf_ && (uint32_t)(now - lastValid_) >= cfg.hold_ms) {
+      haveRf_ = false;
+      level_ = 0;
+    }
+    if (fCount_) {
+      const uint32_t t = now - fStart_;
+      if (t / FLASH_PERIOD_MS >= fCount_) fCount_ = 0;
+      else return (t % FLASH_PERIOD_MS) < FLASH_PERIOD_MS / 2 ? fMask_ : 0;
+    }
+    return level_;
+  }
+  uint8_t level() const { return level_; }
+
+  static const char* name(uint8_t mask) {
+    switch (mask) {
+      case LED_GREEN:  return "green";
+      case LED_ORANGE: return "orange";
+      case LED_RED:    return "red";
+      default:         return "off";
+    }
+  }
+
+ private:
+  // Thresholds move away from the current colour by `hyst`, so a reading
+  // that sits on a threshold does not make the LEDs flicker.
+  uint8_t levelFor(float swr) const {
+    float g = cfg.green_below, rd = cfg.red_from;
+    if (level_ == LED_GREEN) g += cfg.hyst;
+    if (level_ == LED_ORANGE) { g -= cfg.hyst; rd += cfg.hyst; }
+    if (level_ == LED_RED) rd -= cfg.hyst;
+    if (swr < g) return LED_GREEN;
+    if (swr < rd) return LED_ORANGE;
+    return LED_RED;
+  }
+
+  uint8_t level_ = 0, fMask_ = 0, fCount_ = 0;
+  bool haveRf_ = false;
+  uint32_t lastValid_ = 0, fStart_ = 0;
 };
 
 }  // namespace atas

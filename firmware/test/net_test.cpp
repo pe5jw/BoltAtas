@@ -1,5 +1,7 @@
-// Host test for the Ethernet/WiFi switching in BoltATAS.ino:
-// "one or the other, never both".
+// Host test for BoltATAS.ino:
+//  1. Ethernet/WiFi switching: "one or the other, never both"
+//  2. front panel: UP / DOWN / TUNE buttons and SWR LEDs, against the
+//     real sketch with simulated pins and detector voltages
 //   g++ -std=gnu++17 -DARDUINO=10819 -DARDUINOJSON_ENABLE_PROGMEM=0 
 //       -DARDUINOJSON_ENABLE_ARDUINO_STREAM=0 -DARDUINOJSON_ENABLE_ARDUINO_PRINT=0 
 //       -I stubs -I ../BoltATAS -I <ArduinoJson>/src net_test.cpp -o net_test
@@ -12,6 +14,9 @@ static wifi_mode_t g_wifiMode = WIFI_OFF;
 static unsigned long g_wifiBeganAt = 0;
 static bool g_wifiBegun = false;
 static int g_k1 = 0, g_k2 = 0;
+static int g_pin[40];                 // output levels written by the sketch
+static int g_btn[40];                 // input levels (HIGH = released)
+static int32_t g_mv[40];              // ADC millivolts per pin
 
 HardwareSerial Serial;
 ETHClass ETH;
@@ -67,8 +72,9 @@ bool WebServer::hasArg(const String&) const { return false; }
 void WebServer::sendHeader(const String&, const String&, bool) {}
 void WebServer::send(int, const char*, const String&) {}
 void pinMode(uint8_t, uint8_t) {}
-void digitalWrite(uint8_t p, uint8_t v) { if (p == PIN_K1_12V) g_k1 = v; if (p == PIN_K2_8V) g_k2 = v; }
-int32_t analogReadMilliVolts(uint8_t) { return 250; }   // no RF, no motor current
+void digitalWrite(uint8_t p, uint8_t v) { g_pin[p] = v; if (p == PIN_K1_12V) g_k1 = v; if (p == PIN_K2_8V) g_k2 = v; }
+int digitalRead(uint8_t p) { return g_btn[p]; }
+int32_t analogReadMilliVolts(uint8_t p) { return g_mv[p]; }   // 250 mV: no RF; IMOT 125 mA
 void analogReadResolution(uint8_t) {}
 void analogSetPinAttenuation(uint8_t, adc_attenuation_t) {}
 unsigned long millis() { return g_ms; }
@@ -94,10 +100,102 @@ static void runUntil(unsigned long t) {
   }
 }
 
+// Detector voltages for a carrier of w watts at the given SWR (AD8307
+// 25 mV/dB, intercept -84 dBm, 42.5 dB coupling); w = 0: no carrier.
+static void setRf(float w, float swr) {
+  if (w <= 0) { g_mv[PIN_ADC_FWD] = g_mv[PIN_ADC_REF] = 250; return; }
+  const float dbm = 10.0f * log10f(w) + 30.0f;
+  const float rho = (swr - 1.0f) / (swr + 1.0f);
+  const float rl = -20.0f * log10f(rho > 1e-4f ? rho : 1e-4f);
+  g_mv[PIN_ADC_FWD] = (int32_t)(25.0f * (dbm - 42.5f + 84.0f));
+  g_mv[PIN_ADC_REF] = (int32_t)(25.0f * (dbm - rl - 42.5f + 84.0f));
+}
+
+static uint8_t swrLedMask() {
+  return (g_pin[PIN_SWR_G] ? 1 : 0) | (g_pin[PIN_SWR_O] ? 2 : 0) | (g_pin[PIN_SWR_R] ? 4 : 0);
+}
+
+// Run for ms; returns the OR of all SWR LED masks seen and whether a relay was on.
+static uint8_t runSeen(unsigned long ms, bool* relay = nullptr) {
+  uint8_t seen = 0;
+  bool rel = false;
+  const unsigned long end = g_ms + ms;
+  while (g_ms < end) {
+    loop();
+    seen |= swrLedMask();
+    rel |= g_k1 || g_k2;
+    CHECK(!(g_k1 && g_k2), "both relays on");
+  }
+  if (relay) *relay = rel;
+  return seen;
+}
+
+static void testPanel() {
+  bool rel;
+  // a. no carrier: UP runs K2 (8 V) while held, release stops
+  g_btn[PIN_BTN_UP] = LOW;
+  runSeen(300);
+  CHECK(g_k2 && !g_k1, "UP held without carrier: K2 on");
+  g_btn[PIN_BTN_UP] = HIGH;
+  runSeen(100);
+  CHECK(!g_k1 && !g_k2, "UP released: motor off");
+  // b. DOWN runs K1 (12 V)
+  g_btn[PIN_BTN_DOWN] = LOW;
+  runSeen(300);
+  CHECK(g_k1 && !g_k2, "DOWN held: K1 on");
+  g_btn[PIN_BTN_DOWN] = HIGH;
+  runSeen(100);
+  CHECK(!g_k1 && !g_k2, "DOWN released: motor off");
+  printf("t=%5lu UP/DOWN without carrier ok\n", g_ms);
+  // c. TUNE without carrier: refused, red flashes, motor stays off
+  g_btn[PIN_BTN_TUNE] = LOW;
+  uint8_t seen = runSeen(100, &rel);
+  g_btn[PIN_BTN_TUNE] = HIGH;
+  seen |= runSeen(1000, &rel);
+  CHECK(seen == 4 && !rel, "TUNE without carrier: only red flashes, no motor");
+  CHECK(!tuner.active(), "no tune without carrier");
+  // d. SWR colours with a 10 W carrier
+  setRf(10, 1.2f);  runSeen(200);  CHECK(swrLedMask() == 1, "SWR 1.2 -> green");
+  setRf(10, 2.0f);  runSeen(200);  CHECK(swrLedMask() == 2, "SWR 2.0 -> orange");
+  setRf(10, 3.0f);  runSeen(200);  CHECK(swrLedMask() == 4, "SWR 3.0 -> red");
+  setRf(0, 1.0f);   runSeen(1000); CHECK(swrLedMask() == 0, "carrier off -> LEDs off");
+  printf("t=%5lu SWR LEDs green/orange/red/off ok\n", g_ms);
+  // e. 100 W: UP refused, orange+red flash
+  setRf(100, 1.2f); runSeen(200);
+  g_btn[PIN_BTN_UP] = LOW;
+  seen = runSeen(300, &rel);
+  g_btn[PIN_BTN_UP] = HIGH;
+  runSeen(1000);
+  CHECK(!rel && (seen & 6) == 6, "UP at 100 W: refused with orange+red flash");
+  // f. 10 W: UP runs; power goes to 100 W while held -> stops
+  setRf(10, 1.2f); runSeen(600);
+  g_btn[PIN_BTN_UP] = LOW;
+  runSeen(300);
+  CHECK(g_k2, "UP at 10 W: K2 on");
+  setRf(100, 1.2f);
+  runSeen(150);
+  CHECK(!g_k1 && !g_k2, "power above 25 W during a manual move: motor stops");
+  g_btn[PIN_BTN_UP] = HIGH;
+  setRf(10, 3.0f);
+  runSeen(1200);
+  // g. TUNE with carrier starts autotune, second press aborts
+  g_btn[PIN_BTN_TUNE] = LOW;  runSeen(100);  g_btn[PIN_BTN_TUNE] = HIGH;  runSeen(300);
+  CHECK(tuner.active(), "TUNE with 10 W carrier: autotune running");
+  g_btn[PIN_BTN_TUNE] = LOW;  runSeen(100);  g_btn[PIN_BTN_TUNE] = HIGH;  runSeen(100);
+  CHECK(!tuner.active() && tuner.result() == atas::TuneResult::Aborted, "second TUNE press aborts");
+  CHECK(!g_k1 && !g_k2, "motor off after abort");
+  printf("t=%5lu buttons with carrier ok\n", g_ms);
+  setRf(0, 1.0f);
+}
+
 static const char* linkName() { return link == Link::Eth ? "eth" : (link == Link::Wifi ? "wifi" : "none"); }
 
 int main() {
+  for (int i = 0; i < 40; i++) { g_btn[i] = HIGH; g_mv[i] = 250; }
   setup();
+  CHECK(swrLedMask() == 0, "SWR LEDs off before the first loop");
+  runUntil(60);
+  CHECK(swrLedMask() == 7, "lamp test: all SWR LEDs on at boot");
   CHECK(g_cb != nullptr, "network event handler not registered");
   ev(ARDUINO_EVENT_ETH_START);
 
@@ -140,6 +238,8 @@ int main() {
   CHECK(link == Link::Eth && g_wifiMode == WIFI_OFF, "late DHCP -> Ethernet only");
   printf("t=%5lu late DHCP       -> %s\n", g_ms, linkName());
 
-  printf(failures ? "%d FAILURES\n" : "NETWORK TEST PASSED\n", failures);
+  testPanel();
+
+  printf(failures ? "%d FAILURES\n" : "NETWORK + FRONT PANEL TEST PASSED\n", failures);
   return failures ? 1 : 0;
 }

@@ -336,10 +336,10 @@ W("K2.4", "R41.1"); LBL("MOT_IDLE", (267.97, 68.58)); PWR("GND", "R41.2", "D")
 #  E  controller
 # ════════════════════════════════════════════════════════════
 TXT("E  Controller WT32-ETH01", 320.04, 22.86, 2.0)
-U6P = {"1": "NC", "2": "GND", "3": "+3V3", "4": "ESP_EN", "5": "K2_CTRL", "6": "LED_CTRL", "7": "NC", "8": "NC",
-       "9": "GND", "10": "NC", "11": "GND", "12": "+5V", "13": "NC",
+U6P = {"1": "NC", "2": "GND", "3": "+3V3", "4": "ESP_EN", "5": "K2_CTRL", "6": "LED_CTRL", "7": "BTN_DOWN",
+       "8": "BTN_TUNE", "9": "GND", "10": "NC", "11": "GND", "12": "+5V", "13": "NC",
        "26": "ESP_TX", "25": "ESP_RX", "24": "ESP_IO0", "23": "GND", "22": "REF_ADC", "21": "FWD_ADC",
-       "20": "NC", "19": "NC", "18": "NC", "17": "IMOT_ADC", "16": "K1_CTRL", "15": "NC", "14": "GND"}
+       "20": "BTN_UP", "19": "SWR_R", "18": "SWR_O", "17": "IMOT_ADC", "16": "K1_CTRL", "15": "SWR_G", "14": "GND"}
 place("U6", "BoltATAS:WT32-ETH01", "WT32-ETH01", "BoltATAS:WT32-ETH01_Socket", 342.9, 76.2, U6P, mirror="y",
       spec="plugs into 2x PinSocket 1x13 2.54 mm", refxy=(25.4, 22.86, "left"), valxy=(25.4, 25.4, "left"))
 place("C51", "Device:C", "100n", C0805, 360.68, 49.53, {"1": "+5V", "2": "GND"},
@@ -356,10 +356,6 @@ place("SW2", "Switch:SW_Push", "RESET", "Button_Switch_THT:SW_PUSH_6mm", 378.46,
       rot=90, refxy=(2.54, -1.27, "right"), valxy=(2.54, 1.27, "right"))
 place("SW1", "Switch:SW_Push", "BOOT", "Button_Switch_THT:SW_PUSH_6mm", 378.46, 73.66, {"1": "IO0_EXT", "2": "GND"},
       rot=270, refxy=(-2.54, -1.27, "right"), valxy=(-2.54, 1.27, "right"))
-place("R51", "Device:R", "470", R0805, 322.58, 77.47, {"1": "LED_CTRL", "2": "LED1_A"},
-      refxy=(-2.54, -1.27, "right"), valxy=(-2.54, 1.27, "right"))
-place("LED1", "Device:LED", "green", "LED_THT:LED_D3.0mm", 322.58, 85.09, {"2": "LED1_A", "1": "GND"}, rot=90,
-      spec="STATUS", refxy=(-3.81, -1.27, "left"), valxy=(-3.81, 1.27, "left"))
 
 # supplies
 W("U6.12", (347.98, 45.72), (368.3, 45.72)); PWR("+5V", (347.98, 45.72), "U")
@@ -368,7 +364,7 @@ PWR("+3V3", "U6.3", "U"); NC("U6.10")
 for n in ("2", "9", "11", "14", "23"):
     W(f"U6.{n}", (P(f"U6.{n}")[0], 99.06))
 W((337.82, 99.06), (347.98, 99.06)); PWR("GND", (342.9, 99.06), "D")
-for n in ("1", "13", "15", "7", "18", "19", "20", "8"):
+for n in ("1", "13"):
     NC(f"U6.{n}")
 # programming side: straight to the header
 W("U6.4", "J4.1"); LBL("ESP_EN", (360.68, 60.96))
@@ -377,9 +373,6 @@ W("U6.25", "J4.3"); LBL("ESP_RX", (360.68, 66.04))
 W("U6.24", "R50.1"); W("R50.2", "J4.4"); LBL("IO0_EXT", (381.0, 68.58))
 PWR("GND", "SW2.2", "U"); PWR("GND", "SW1.2", "D")
 PWR("+3V3", "J4.5", "L"); PWR("GND", "J4.6", "L")
-# status LED
-W("U6.6", "R51.1")
-PWR("GND", "LED1.1", "D")
 # relay control bus over the top of the sheet
 W(k1_in, (166.37, 50.8), (166.37, 30.48), (312.42, 30.48), (312.42, 60.96), "U6.16"); LBL("K1_CTRL", (190.5, 30.48))
 W(k2_in, (219.71, 50.8), (219.71, 33.02), (309.88, 33.02), (309.88, 63.5), "U6.5"); LBL("K2_CTRL", (284.48, 33.02))
@@ -388,6 +381,55 @@ W("R25.2", (299.72, 96.52), (299.72, 66.04), "U6.17"); LBL("IMOT_ADC", (205.74, 
 W(ref_out, (153.67, 106.68), (153.67, 111.76), (302.26, 111.76), (302.26, 68.58), "U6.22")
 LBL("REF_ADC", (200.66, 111.76))
 W(fwd_out, (304.8, 157.48), (304.8, 71.12), "U6.21"); LBL("FWD_ADC", (200.66, 157.48))
+
+# ════════════════════════════════════════════════════════════
+#  F  front panel: SWR LEDs, status LED, UP / DOWN / TUNE
+# ════════════════════════════════════════════════════════════
+TXT("F  Front panel", 330.2, 107.95, 2.0)
+place("J5", "Connector_Generic:Conn_01x08", "FRONT", "Connector_PinHeader_2.54mm:PinHeader_1x08_P2.54mm_Vertical",
+      396.24, 111.76, {"1": "GND", "2": "TUNE_SW", "3": "DOWN_SW", "4": "UP_SW", "5": "SWR_R_A", "6": "SWR_O_A",
+                       "7": "SWR_G_A", "8": "LED1_A"},
+      spec="front panel: 1 GND, 2 TUNE, 3 DOWN, 4 UP (switch to GND), 5 SWR red, 6 SWR orange, 7 SWR green, "
+           "8 STATUS (LED anode, series R on board)", refxy=(0, -10.16, None), valxy=(0, 12.7, None))
+W("J5.1", (368.3, 104.14)); PWR("GND", (368.3, 104.14), "D")
+
+# rows, top to bottom; GPIO verticals further left for lower rows, J5 verticals further right
+F_ROWS = [  # (kind, U6 pin, gpio net, label, row y, gpio x, j5 x, J5 pin, parts)
+    ("btn", "8", "BTN_TUNE", "BTN_TUNE", 127.0, 322.58, 373.38, "2", ("R60", "R61", "C60", "SW5", "TUNE")),
+    ("btn", "7", "BTN_DOWN", "BTN_DOWN", 144.78, 320.04, 375.92, "3", ("R62", "R63", "C61", "SW4", "DOWN")),
+    ("btn", "20", "BTN_UP", "BTN_UP", 162.56, 317.5, 378.46, "4", ("R64", "R65", "C62", "SW3", "UP")),
+    ("led", "19", "SWR_R", "SWR_R", 180.34, 314.96, 381.0, "5", ("R66", "LED6", "330", "red", "SWR >= 2.5")),
+    ("led", "18", "SWR_O", "SWR_O", 195.58, 312.42, 383.54, "6", ("R67", "LED5", "330", "orange", "SWR 1.5 - 2.5")),
+    ("led", "15", "SWR_G", "SWR_G", 210.82, 309.88, 386.08, "7", ("R68", "LED4", "330", "green", "SWR < 1.5")),
+    ("led", "6", "LED_CTRL", None, 226.06, 307.34, 388.62, "8", ("R51", "LED1", "470", "green", "STATUS")),
+]
+for kind, upin, gnet, lbl, y, gx, jx, jpin, parts in F_ROWS:
+    if kind == "btn":
+        rpu, rs, c, sw, name = parts
+        nn = f"{name}_SW"
+        place(rs, "Device:R", "1k", R0805, 335.28, y, {"1": gnet, "2": nn}, rot=90,
+              refxy=(0, -2.54, None), valxy=(0, 2.54, None))
+        place(rpu, "Device:R", "10k", R0805, 345.44, y - 3.81, {"1": "+3V3", "2": nn},
+              refxy=(2.54, -1.27, "left"), valxy=(2.54, 1.27, "left"))
+        place(c, "Device:C", "100n", C0805, 353.06, y + 3.81, {"1": nn, "2": "GND"},
+              refxy=(2.54, -1.27, "left"), valxy=(2.54, 1.27, "left"))
+        place(sw, "Switch:SW_Push", name, "Button_Switch_THT:SW_PUSH_6mm", 363.22, y + 5.08, {"1": nn, "2": "GND"},
+              rot=270, refxy=(2.54, -1.27, "left"), valxy=(2.54, 1.27, "left"), spec=f"{name} button")
+        W(f"{rs}.2", (jx, y), (jx, P(f"J5.{jpin}")[1]), f"J5.{jpin}")
+        PWR("+3V3", f"{rpu}.1", "U"); PWR("GND", f"{c}.2", "D"); PWR("GND", f"{sw}.2", "D")
+        W(f"U6.{upin}", (gx, P(f"U6.{upin}")[1]), (gx, y), f"{rs}.1")
+    else:
+        r, led, rv, col, spec = parts
+        nn = f"{led}_A" if led == "LED1" else f"{gnet}_A"
+        place(r, "Device:R", rv, R0805, 335.28, y, {"1": gnet, "2": nn}, rot=90,
+              refxy=(0, -2.54, None), valxy=(0, 2.54, None))
+        place(led, "Device:LED", col, "LED_THT:LED_D3.0mm", 345.44, y + 3.81, {"2": nn, "1": "GND"}, rot=90,
+              spec=spec, refxy=(2.54, -1.27, "right"), valxy=(2.54, 1.27, "right"))
+        W(f"{r}.2", (jx, y), (jx, P(f"J5.{jpin}")[1]), f"J5.{jpin}")
+        PWR("GND", f"{led}.1", "D")
+        W(f"U6.{upin}", (gx, P(f"U6.{upin}")[1]), (gx, y), f"{r}.1")
+    if lbl:
+        LBL(lbl, (gx, 116.84), "U")
 LBL("LED_CTRL", (326.39, 73.66), "L")
 
 # ════════════════════════════════════════════════════════════
@@ -441,7 +483,7 @@ for i in range(4):
           170.18 + 12.7 * i, 236.22, {"1": "GND"}, spec="bond to enclosure")
     PWR("GND", f"H{i+1}.1", "D")
 
-TXT("BoltATAS - design notes", 139.7, 165.1, 1.7)
+TXT("BoltATAS - design notes", 162.56, 165.1, 1.7)
 TXT("Tandem match (Sontheimer): T1 = current transformer, 30T from GND to FWD_PORT; T2 = voltage transformer,\n"
     "30T from RF_LINE to GND, its 1T (coax centre) between FWD_PORT and REF_PORT. Both coax braids grounded at ONE end.\n"
     "FWD and REF swapped when testing? Swap the two 30T leads of T1.\n"
@@ -452,9 +494,12 @@ TXT("Tandem match (Sontheimer): T1 = current transformer, 30T from GND to FWD_PO
     "AD8307: OUT unloaded (25 mV/dB, 12.5k internal), ENB tied to VPS, INM AC-coupled, 1 uF on OFS for 160 m.\n"
     "L1: 20 turns 0.8 mm CuL on FT114-43 (about 240 uH); measure |Z| >= 1.5 kohm over 1.8-30 MHz with a VNA.\n"
     "Relays: pin numbers per the KiCad SRD footprint (1 COM, 3 NO, 4 NC); check COM-NC continuity before soldering.\n"
-    "WT32-ETH01: IO0 is the 50 MHz Ethernet clock input, keep R50 right at the socket. IO5 not used (strapping pin).\n"
-    "Tune only with <= 25 W carrier (firmware refuses above). Heatsinks on U1 and U2 (motor current).",
-    139.7, 170.18, 1.27)
+    "WT32-ETH01: IO0 is the 50 MHz Ethernet clock input, keep R50 right at the socket. Front panel: see block F.\n"
+    "Tune only with <= 25 W carrier (firmware refuses above). Heatsinks on U1 and U2 (motor current).\n"
+    "Front panel (F): buttons 10k pull-up + 100n = 1 ms debounce, 1k protects the GPIO. IO2/IO12 are strap pins:\n"
+    "the LED to GND keeps them low at boot. IO5/IO15 are strap pins too: a pull-up is their default level.\n"
+    "J5 = front panel option: buttons in parallel; fit the LEDs on the board OR on the panel (series R stays on the board).",
+    162.56, 170.18, 1.27)
 
 
 # ════════════════════════════════════════════════════════════
@@ -590,9 +635,9 @@ def build():
     head = ['(kicad_sch (version 20230121) (generator eeschema)\n\n',
             f'  (uuid {ROOT})\n\n  (paper "A3")\n\n',
             '  (title_block\n    (title "BoltATAS - ATAS-100 controller")\n    (date "2026-11-25")\n'
-            '    (rev "1.2")\n    (company "PE5JW")\n'
+            '    (rev "1.3")\n    (company "PE5JW")\n'
             '    (comment 1 "120 W HF 1.8-30 MHz, tandem match + 2x AD8307, WT32-ETH01")\n'
-            '    (comment 2 "v1.2: one connected drawing (wired), same circuit as v1.1")\n'
+            '    (comment 2 "v1.3: front panel (SWR LEDs, UP/DOWN/TUNE); v1.2: one connected drawing")\n'
             '  )\n\n  (lib_symbols\n']
     for lib_id, lib in libs.items():
         head.append("    " + lib["block"].replace("\n", "\n    ") + "\n")

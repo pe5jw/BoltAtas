@@ -89,7 +89,7 @@ WT32_SYM = {  # functional arrangement: pin -> (x, y, angle); symbol is drawn mi
     1: (-15.24, -5.08, 0), 13: (-15.24, -7.62, 0),
 }
 # right: GPIO, used ones first in the order the schematic needs them
-for i, n in enumerate([16, 5, 17, 22, 21, 6, 15, 7, 18, 19, 20, 8]):
+for i, n in enumerate([16, 5, 17, 22, 21, 6, 15, 18, 19, 20, 7, 8]):   # ..IO33, IO2 IO12 IO14 (LEDs), IO15 IO5 IO17 (buttons)
     WT32_SYM[n] = (15.24, round(15.24 - 2.54 * i, 2), 180)
 
 
