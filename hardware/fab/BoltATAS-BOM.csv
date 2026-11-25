@@ -19,13 +19,13 @@ Qty,References,Value,Footprint,Notes
 1,J1,RF IN,Coax_Pigtail,"pigtail RG-58/RG-400 to panel SO-239, from FT-897D"
 1,J2,ANT,Coax_Pigtail,"pigtail RG-58/RG-400 to panel SO-239, to ATAS-100"
 1,J3,13.8V IN,"TerminalBlock_Phoenix_MKDS-1,5-2-5.08_1x02_P5.08mm_Horizontal",
-1,J4,PROG,PinHeader_1x06_P2.54mm_Vertical,USB-serial 3.3 V: GND TX RX 3V3(ref only) IO0 EN
-1,K1,SRD-05VDC-SL-C,Relay_SPDT_SANYOU_SRD_Series_Form_C,K1: +12 V = whip longer (DOWN)
+1,J4,PROG,PinHeader_1x06_P2.54mm_Vertical,"USB-serial 3.3 V: 1 EN, 2 TX, 3 RX, 4 IO0, 5 3V3 (reference), 6 GND"
+1,K1,SRD-05VDC-SL-C,Relay_SPDT_SANYOU_SRD_Series_Form_C,K1: +12 V = whip longer (DOWN); NC feeds K2 COM = hardware interlock
 1,K2,SRD-05VDC-SL-C,Relay_SPDT_SANYOU_SRD_Series_Form_C,K2: +8 V = whip shorter (UP)
 1,L1,240u,Toroid_FT114_Flat_Choke,"RF choke: 20T 0.8 mm CuL on FT114-43, single layer; |Z| >= 1.5k 1.8-30 MHz"
 1,LED1,green,LED_D3.0mm,STATUS
-1,LED2,red,LED_D3.0mm,DOWN / 12 V
-1,LED3,yellow,LED_D3.0mm,UP / 8 V
+1,LED2,red,LED_D3.0mm,DOWN / 12 V indicator
+1,LED3,yellow,LED_D3.0mm,UP / 8 V indicator
 2,Q1 Q2,BC547,TO-92_Inline_Wide,
 2,R10 R20,78.7,R_2010_5025Metric,1% 0.75W 2010; 13 dB pi-pad input shunt
 2,R11 R21,105,R_1206_3216Metric,1% 1206; pad series

@@ -23,7 +23,7 @@
  *  - Ethernet/WiFi never both: WiFi only starts when there is no
  *    Ethernet link and is switched off the moment a cable is plugged in.
  *
- * Pins (hardware v1.1, see schematic):
+ * Pins (hardware v1.1 and v1.2, same pinout, see schematic):
  *   IO36  ADC  FWD detector (AD8307 U4)
  *   IO39  ADC  REF detector (AD8307 U5)
  *   IO35  ADC  motor current (INA180A1, 2 mV per mA)

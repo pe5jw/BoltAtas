@@ -15,8 +15,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 KDIR = os.path.dirname(HERE)
 
 
-def u():
-    return str(uuid.uuid4())
+_N = [0]
+
+
+def u():                       # deterministic ids: regenerating gives identical files (clean git diffs)
+    _N[0] += 1
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"boltatas-lib-{_N[0]}"))
 
 
 FONT = "(effects (font (size 1.27 1.27)))"
@@ -46,16 +50,16 @@ def sym_ad8307():
     s = symbol("AD8307", "U", "AD8307", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
                "https://www.analog.com/media/en/technical-documentation/data-sheets/AD8307.pdf",
                "Logarithmic amplifier / RF detector, DC-500 MHz, 92 dB, 25 mV/dB",
-               (-7.62, 7.62, 7.62, -7.62), None)
+               (-7.62, 5.08, 7.62, -5.08), None)
     s += '    )\n    (symbol "AD8307_1_1"\n'
-    s += pin("input", -10.16, 5.08, 0, "INP", "8")
-    s += pin("input", -10.16, 2.54, 0, "INM", "1")
-    s += pin("passive", -10.16, -2.54, 0, "OFS", "3")
-    s += pin("passive", -10.16, -5.08, 0, "INT", "5")
+    s += pin("input", -10.16, 2.54, 0, "INP", "8")
+    s += pin("input", -10.16, -2.54, 0, "INM", "1")
     s += pin("output", 10.16, 0, 180, "OUT", "4")
-    s += pin("power_in", -2.54, 10.16, 270, "VPS", "7")
-    s += pin("input", 2.54, 10.16, 270, "ENB", "6")
-    s += pin("power_in", 0, -10.16, 90, "COM", "2")
+    s += pin("power_in", -2.54, 7.62, 270, "VPS", "7")
+    s += pin("input", 2.54, 7.62, 270, "ENB", "6")
+    s += pin("passive", -5.08, -7.62, 90, "OFS", "3")
+    s += pin("power_in", 0, -7.62, 90, "COM", "2")
+    s += pin("passive", 5.08, -7.62, 90, "INT", "5")
     s += '    )\n  )\n'
     return s
 
@@ -74,17 +78,18 @@ WT32_RIGHT = [
     (16, "IO4", "bidirectional"), (15, "IO2", "bidirectional"), (14, "GND", "power_in")]
 
 
-WT32_SYM = {  # functional arrangement: pin -> (x, y, angle)
+WT32_SYM = {  # functional arrangement: pin -> (x, y, angle); symbol is drawn mirrored
     # top: supplies
     12: (-5.08, 20.32, 270), 3: (0, 20.32, 270), 10: (5.08, 20.32, 270),
     # bottom: grounds
     2: (-5.08, -20.32, 90), 9: (-2.54, -20.32, 90), 11: (0, -20.32, 90), 14: (2.54, -20.32, 90),
     23: (5.08, -20.32, 90),
-    # left: system / programming
-    4: (-15.24, 12.7, 0), 24: (-15.24, 10.16, 0), 26: (-15.24, 7.62, 0), 25: (-15.24, 5.08, 0),
-    1: (-15.24, 0, 0), 13: (-15.24, -2.54, 0),
+    # left: programming / system (EN, TX, RX, IO0 adjacent, same order as the PROG header)
+    4: (-15.24, 15.24, 0), 26: (-15.24, 12.7, 0), 25: (-15.24, 10.16, 0), 24: (-15.24, 7.62, 0),
+    1: (-15.24, -5.08, 0), 13: (-15.24, -7.62, 0),
 }
-for i, n in enumerate([21, 22, 17, 16, 5, 6, 15, 7, 18, 19, 20, 8]):   # right: GPIO
+# right: GPIO, used ones first in the order the schematic needs them
+for i, n in enumerate([16, 5, 17, 22, 21, 6, 15, 7, 18, 19, 20, 8]):
     WT32_SYM[n] = (15.24, round(15.24 - 2.54 * i, 2), 180)
 
 

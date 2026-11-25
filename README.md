@@ -4,11 +4,11 @@ Netwerkcontroller voor de Yaesu **ATAS-100** motorantenne op de FT-897D, op basi
 Meet vooruit- en reflectievermogen (tandem match + 2× AD8307), stuurt de antennemotor via de DC-spanning op de coax
 en stemt zelfstandig af op de laagste SWR. Bediening via een HTTP API in BoltSwitch-stijl.
 
-PE5JW — hardware/firmware v1.1 (2026-11-24)
+PE5JW — hardware v1.2 (2026-11-25), firmware v1.1
 
 > **Status:** ontwerp en firmware zijn met tools gecontroleerd, maar er is nog **niets gebouwd of op de band getest**.
-> - Schema: de netlist is door KiCad zelf geëxporteerd en vergeleken met de onderdelenlijst. Daarbij zijn de pin-types gecontroleerd.
-> - PCB: DRC geeft 0 fouten, alle verbindingen zijn gerouteerd.
+> - Schema: één doorverbonden tekening met echte draden. De netlist is door KiCad zelf geëxporteerd en vergeleken met de bedoelde verbindingen (222 pinnen, 48 netten, 0 fouten). Daarbij zijn de pin-types gecontroleerd.
+> - PCB: gegenereerd uit dit schema en eraan gekoppeld. DRC geeft 0 fouten en 0 onverbonden pads; er blijven 2 cosmetische silkscreen-waarschuwingen over (WT32-footprint).
 > - Firmware: de afstemlogica is getest in een simulatie (9000 runs). De Ethernet/WiFi-wisseling is getest tegen stubs voor arduino-esp32 core 2.x en 3.x.
 >
 > Zie [Open punten](#open-punten) voor wat je bij de bouw moet nameten.
@@ -21,7 +21,7 @@ PE5JW — hardware/firmware v1.1 (2026-11-24)
 |---|---|
 | `hardware/` | KiCad 7 project: `BoltATAS.kicad_sch`, `.kicad_pcb`, `.kicad_pro`, `.kicad_dru`, projectbibliotheek (`BoltATAS.kicad_sym`, `BoltATAS.pretty/`) |
 | `hardware/fab/` | Gerbers + boorbestanden (`BoltATAS-gerbers.zip`), BOM (`BoltATAS-BOM.csv`), pick&place |
-| `hardware/tools/` | Python-generators voor bibliotheek, schema en PCB, netlist-check, DRC, `build_all.sh` |
+| `hardware/tools/` | Python-generators voor bibliotheek, schema en PCB, netlist-check, DRC, fab-uitvoer (`fab.py`), `build_all.sh` |
 | `firmware/BoltATAS/` | Arduino sketch (`BoltATAS.ino`) + platformonafhankelijke logica (`AtasCore.h`) |
 | `firmware/test/` | Simulatie van autotune/motor en test van de netwerkwisseling (draait op een PC) |
 | `docs/` | Schema als PDF/PNG, PCB-renders, DRC-rapport |
@@ -61,6 +61,8 @@ FT-897D ─ J1 ─ T1 (stroomtrafo) ─ RF_LINE ─ C1..C3 (DC-blok) ─ RF_ANT 
 | IO0 | Ethernet-klok (50 MHz). Alleen via R50 naar BOOT-knop/header |
 
 Ethernet gebruikt IO0, 16, 18, 19, 21–23 en 25–27. IO5 wordt niet gebruikt: dat is een strapping-pin die tijdens het booten schakelt.
+
+**Programmeerheader J4** (USB-serieel, 3,3 V): 1 EN, 2 TX, 3 RX, 4 IO0 (via R50), 5 3V3 (alleen referentie, niet voeden), 6 GND. SW2 = RESET, SW1 = BOOT.
 
 ### Bouwnotities
 
@@ -147,11 +149,19 @@ Het schema en de PCB worden gegenereerd uit `hardware/tools/`. Benodigd: KiCad 7
 FREEROUTING=/pad/freerouting-2.5.0.jar JAVA=java hardware/tools/build_all.sh
 ```
 
-Dit draait de volgende stappen achter elkaar: bibliotheken → schema → netlist via KiCad → vergelijking met de onderdelenlijst → plaatsing → autorouter → GND-vlakken → DRC.
+Dit draait de volgende stappen achter elkaar: bibliotheken → schema → netlist via KiCad → vergelijking met de bedoelde verbindingen → plaatsing → autorouter → GND-vlakken → DRC → Gerbers, BOM, pick&place en de afbeeldingen in `docs/`. Freerouting is niet deterministisch; het script probeert het routeren opnieuw (max. 8×) tot de DRC schoon is.
 
-Handmatige aanpassingen in KiCad zelf mogen gewoon, maar die worden bij een volgende generatorrun overschreven.
+De footprints in de PCB zijn aan de schemasymbolen gekoppeld, dus **Tools → Update PCB from Schematic** (F8) in KiCad werkt gewoon. Handmatige aanpassingen in KiCad mogen, maar die worden bij een volgende generatorrun overschreven.
 
-## Wijzigingen t.o.v. v1.0 (review)
+## Wijzigingen in v1.2
+
+- **Schema opnieuw getekend als één geheel:** alle onderdelen zijn met draden verbonden, met junctions op de aftakkingen. Netlabels staan alleen nog op de belangrijke netten (RF_TX, RF_LINE, FWD_PORT, K1_CTRL, FWD_ADC, enz.) en niet meer op elke pin. Indeling: A RF-pad, B detectoren, C motor/relais, D voeding, E WT32-ETH01. De schakeling zelf is gelijk aan v1.1.
+- **J4 PROG** heeft een logischere volgorde: 1 EN, 2 TX, 3 RX, 4 IO0, 5 3V3, 6 GND.
+- **PCB opnieuw gegenereerd** uit het nieuwe schema, met de footprints gekoppeld aan de symbolen. Silkscreen opgeschoond: van 12 naar 2 waarschuwingen.
+- De generators geven nu steeds dezelfde UUID's, zodat een nieuwe run geen onnodige git-diffs geeft.
+- Nieuw: `hardware/tools/fab.py` voor Gerbers, BOM, pick&place en de afbeeldingen.
+
+## Wijzigingen in v1.1 t.o.v. v1.0 (review)
 
 v1.0 had geen bruikbare KiCad-bestanden: het schema bevatte geen draden of symbooldefinities, en de PCB had geen sporen, verkeerde footprints en overlappende onderdelen. De belangrijkste inhoudelijke fouten:
 

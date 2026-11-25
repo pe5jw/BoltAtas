@@ -64,7 +64,7 @@ PLACE = {
     "U3": (98, 63, 0), "C48": (110, 59, 0), "C49": (110, 67, 0), "C50": (100.5, 70, 0),
     # controller
     "U6": (135, 27.5, 180), "C51": (118.5, 52, 90), "C52": (110, 76, 0),
-    "R50": (119.5, 44, 90), "J4": (118, 62, 0), "SW1": (125, 64, 0), "SW2": (125, 76, 0),
+    "R50": (119.5, 44, 90), "J4": (119.5, 62, 0), "SW1": (125, 64, 0), "SW2": (125, 76, 0),
     "R51": (132, 91, 0), "LED1": (131, 96, 0),
     # mounting holes
     "H1": (4, 4, 0), "H2": (4, 96, 0), "H3": (146, 96, 0), "H4": (100, 96, 0),
@@ -72,7 +72,8 @@ PLACE = {
 
 # reference text offsets (board mm, from footprint origin) where the default collides
 REFPOS = {"J3": (2.5, 7.5), "C48": (6.5, 0), "C49": (6.5, 0), "C46": (6.5, 0), "C43": (6.5, 0),
-          "C52": (6.5, 0), "C40": (1.75, 5.6), "Q1": (1.27, 3.6), "Q2": (1.27, 3.6), "C26": (2.2, 0)}
+          "C52": (6.5, 0), "C40": (1.75, 5.6), "Q1": (1.27, 3.6), "Q2": (1.27, 3.6), "C26": (2.2, 0),
+          "C51": (0, 2.7), "R43": (3.2, 0), "R45": (3.2, 0), "R41": (1.75, 0)}
 
 # ── net classes ──
 CLASSES = {
@@ -120,7 +121,10 @@ def parse_netlist(path):
     txt = open(path).read()
     comps = {}
     for m in re.finditer(r'\(comp \(ref "([^"]+)"\)\s*\(value "([^"]*)"\)\s*\(footprint "([^"]*)"\)', txt):
-        comps[m.group(1)] = (m.group(2), m.group(3))
+        nxt = txt.find("(comp (ref", m.end())
+        block = txt[m.end():nxt if nxt > 0 else len(txt)]
+        ts = re.search(r'\(tstamps "([0-9a-f-]{36})"\)', block)
+        comps[m.group(1)] = (m.group(2), m.group(3), ts.group(1) if ts else None)
     pins = {}
     nets = []
     for m in re.finditer(r'\(net \(code "\d+"\) \(name "([^"]+)"\)', txt):
@@ -253,10 +257,14 @@ def build_place(netfile):
         netmap[name] = ni
     setup_classes(board, netmap)
 
-    for ref, (val, fpid) in sorted(comps.items()):
+    for ref, (val, fpid, uuid) in sorted(comps.items()):
         fp = load_fp(fpid)
         fp.SetReference(ref)
         fp.SetValue(val)
+        if uuid:                          # link to the schematic symbol (Update PCB from Schematic keeps it)
+            fp.SetPath(pcbnew.KIID_PATH("/" + uuid))
+            fp.SetProperty("Sheetname", "")
+            fp.SetProperty("Sheetfile", "BoltATAS.kicad_sch")
         x, y, rot = PLACE[ref]
         fp.SetPosition(V(x, y))
         fp.SetOrientationDegrees(rot)
@@ -297,14 +305,22 @@ def build_place(netfile):
     for net, lay, wdt, pts in HAND:
         add_track(board, netmap, net, lay, wdt, pts)
 
+    tb = board.GetTitleBlock()
+    tb.SetTitle("BoltATAS - ATAS-100 controller")
+    tb.SetRevision("1.2")
+    tb.SetDate("2026-11-25")
+    tb.SetCompany("PE5JW")
+    tb.SetComment(0, "2-layer FR4 1.6 mm, 1 oz; RF tracks 2.5 mm; GND pour both sides")
+    board.SetTitleBlock(tb)
+
     # text
     t = pcbnew.PCB_TEXT(board)
-    t.SetText("BoltATAS v1.1  PE5JW")
+    t.SetText("BoltATAS v1.2  PE5JW")
     t.SetPosition(V(104, 90))
     t.SetLayer(pcbnew.F_SilkS)
     t.SetTextSize(pcbnew.VECTOR2I(pcbnew.FromMM(1.5), pcbnew.FromMM(1.5)))
     board.Add(t)
-    for txt, x, y in [("RF IN", 5, 28.5), ("ANT", 64, 28.5), ("13.8V", 106, 1.6), ("TX", 5, 11.5)]:
+    for txt, x, y in [("RF IN", 5, 28.5), ("ANT", 64, 28.5), ("13.8V", 100.5, 3.2), ("TX", 5, 11.5)]:
         t = pcbnew.PCB_TEXT(board)
         t.SetText(txt)
         t.SetPosition(V(x, y))
