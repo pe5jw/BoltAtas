@@ -20,7 +20,7 @@ PE5JW — hardware v1.3, firmware v1.2 (2026-11-25)
 | Map | Inhoud |
 |---|---|
 | `hardware/` | KiCad 7 project: `BoltATAS.kicad_sch`, `.kicad_pcb`, `.kicad_pro`, `.kicad_dru`, projectbibliotheek (`BoltATAS.kicad_sym`, `BoltATAS.pretty/`) |
-| `hardware/fab/` | Gerbers + boorbestanden (`BoltATAS-gerbers.zip`), BOM (`BoltATAS-BOM.csv`), pick&place |
+| `hardware/fab/` | Gerbers + boorbestanden (`BoltATAS-gerbers.zip`), BOM (`BoltATAS-BOM.csv`), bestellijst voor DigiKey (`BoltATAS-BOM-DigiKey.csv`, te uploaden in de BOM Manager), pick&place |
 | `hardware/tools/` | Python-generators voor bibliotheek, schema en PCB, netlist-check, DRC, fab-uitvoer (`fab.py`), `build_all.sh` |
 | `firmware/BoltATAS/` | Arduino sketch (`BoltATAS.ino`) + platformonafhankelijke logica (`AtasCore.h`) |
 | `firmware/test/` | Simulatie van autotune/motor en test van de netwerkwisseling (draait op een PC) |
